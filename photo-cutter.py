@@ -6,46 +6,54 @@ import math
 import tempfile
 from pillow_heif import register_heif_opener
 
+# Register HEIF/HEIC image support
 register_heif_opener()
 
-# Global Settings
+# --- CONFIGURATION ---
 ANCHOR_OPTIONS = ["center", "start", "end"]
 MODE_OPTIONS = ["auto", "landscape", "portrait"]
-CROP_ANCHOR = "center"
-CROP_FORCE_MODE = "auto"
 TARGET_RATIOS = {
     "landscape": (15, 10),
     "portrait": (10, 15),
     "square": (10, 15),
 }
 
-selected_files = []
-current_index = 0
-preview_temp_path = None
+# --- APP STATE ---
+app_state = {
+    "selected_files": [],
+    "current_index": 0,
+    "preview_temp_path": None,
+    "crop_anchor": "center",
+    "crop_mode": "auto"
+}
 
-# Helper Functions
+# --- IMAGE UTILS ---
+
 def get_aspect_ratio(width, height):
+    """Returns aspect ratio as a simplified string like '3x2'."""
     gcd = math.gcd(width, height)
     return f"{width // gcd}x{height // gcd}"
 
 def get_orientation(width, height):
+    """Returns orientation: 'landscape', 'portrait', or 'square'."""
     if width > height:
         return "landscape"
     elif height > width:
         return "portrait"
-    else:
-        return "square"
+    return "square"
 
 def get_crop_coords(start, length, crop_length, anchor):
+    """Calculates cropping start and end points based on anchor."""
     if anchor == "start":
         return start, start + crop_length
     elif anchor == "end":
         return start + (length - crop_length), start + length
-    else:
+    else:  # center
         offset = (length - crop_length) // 2
         return start + offset, start + offset + crop_length
 
 def get_target_crop_box(width, height, target_ratio, anchor):
+    """Returns crop box (x0, y0, x1, y1) to achieve the target aspect ratio."""
     target_w, target_h = target_ratio
     current_ratio = width / height
     target_ratio_float = target_w / target_h
@@ -60,15 +68,14 @@ def get_target_crop_box(width, height, target_ratio, anchor):
         return (0, y0, width, y1)
 
 def determine_target_ratio(width, height, mode):
-    if mode == "landscape":
-        return TARGET_RATIOS["landscape"], "landscape"
-    elif mode == "portrait":
-        return TARGET_RATIOS["portrait"], "portrait"
-    else:
-        orientation = get_orientation(width, height)
-        return TARGET_RATIOS[orientation], orientation
+    """Determines target crop ratio based on mode or image orientation."""
+    if mode in ["landscape", "portrait"]:
+        return TARGET_RATIOS[mode], mode
+    orientation = get_orientation(width, height)
+    return TARGET_RATIOS[orientation], orientation
 
 def convert_image_only(file_path, anchor, mode):
+    """Opens and crops image to target ratio (used for preview and processing)."""
     try:
         with Image.open(file_path) as img:
             img = img.convert("RGB")
@@ -77,114 +84,150 @@ def convert_image_only(file_path, anchor, mode):
             crop_box = get_target_crop_box(width, height, target_ratio, anchor)
             return img.crop(crop_box)
     except Exception as e:
-        print(f"❌ Error processing {file_path} for preview: {e}")
+        log_message(f"❌ Error processing '{file_path}': {e}")
         return None
 
 def save_image(image, original_path):
+    """Saves the cropped image as JPEG and deletes original if not JPEG."""
     base_name = os.path.splitext(os.path.basename(original_path))[0]
-    new_path = os.path.join(os.path.dirname(original_path), f"{base_name}.jpg")
-    image.save(new_path, format="JPEG", quality=95)
-    if not original_path.lower().endswith('.jpg'):
+    output_path = os.path.join(os.path.dirname(original_path), f"{base_name}.jpg")
+    image.save(output_path, format="JPEG", quality=95)
+    if not original_path.lower().endswith(".jpg"):
         os.remove(original_path)
-    return new_path
+    return output_path
 
 def process_and_save(file_path, anchor, mode):
+    """Processes and saves cropped image."""
     image = convert_image_only(file_path, anchor, mode)
     if image:
-        log_message(f"✅ Converted '{os.path.basename(file_path)}' successfully.")
-        saved_path = save_image(image, file_path)
-        log_message(f"💾 Saved to: {saved_path}")
-        return saved_path
-    else:
-        log_message(f"❌ Failed to convert: {file_path}")
-        return None
+        log_message(f"✅ Cropped '{os.path.basename(file_path)}'")
+        output_path = save_image(image, file_path)
+        log_message(f"💾 Saved to: {output_path}")
+        return output_path
+    log_message(f"❌ Failed to process: {file_path}")
+    return None
 
-# GUI Functions
-def process_files():
-    global selected_files, current_index
-    file_paths = filedialog.askopenfilenames(filetypes=[("Image Files", "*.jpg *.jpeg *.png *.heic")])
-    if not file_paths:
-        return
-    selected_files = list(file_paths)
-    current_index = 0
-    output_text.config(state=tk.NORMAL)
-    output_text.delete("1.0", tk.END)
-    output_text.config(state=tk.DISABLED)
-    update_preview()
-
-def update_preview():
-    global preview_temp_path
-    if not selected_files or current_index >= len(selected_files):
-        preview_label.config(image='')
-        preview_label.image = None
-        begin_button.config(state=tk.DISABLED)
-        log_message("✅ All files processed.")
-        return
-
-    current_path = selected_files[current_index]
-    image = convert_image_only(current_path, CROP_ANCHOR, CROP_FORCE_MODE)
-    if image:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        preview_temp_path = temp_file.name
-        image.thumbnail((300, 300))
-        image.save(preview_temp_path, format="JPEG")
-        img = Image.open(preview_temp_path)
-        img_tk = ImageTk.PhotoImage(img)
-        preview_label.config(image=img_tk)
-        preview_label.image = img_tk
-        begin_button.config(state=tk.NORMAL)
-        log_message(f"🔍 Previewing: {os.path.basename(current_path)}")
-
-def begin_process():
-    global current_index
-    if selected_files and current_index < len(selected_files):
-        file_path = selected_files[current_index]
-        process_and_save(file_path, CROP_ANCHOR, CROP_FORCE_MODE)
-        current_index += 1
-        update_preview()
-
-def update_anchor(val):
-    global CROP_ANCHOR
-    CROP_ANCHOR = val
-    update_preview()
-
-def update_mode(val):
-    global CROP_FORCE_MODE
-    CROP_FORCE_MODE = val
-    update_preview()
+# --- GUI FUNCTIONS ---
 
 def log_message(msg):
+    """Appends log message to the output box."""
     output_text.config(state=tk.NORMAL)
     output_text.insert(tk.END, msg + "\n")
     output_text.see(tk.END)
     output_text.config(state=tk.DISABLED)
 
-# GUI Setup
+def update_preview():
+    """Displays preview of the current image."""
+    index = app_state["current_index"]
+    files = app_state["selected_files"]
+
+    if not files or index >= len(files):
+        # Show placeholder
+        placeholder = Image.new("RGB", (300, 300), color="gray")
+        placeholder_tk = ImageTk.PhotoImage(placeholder)
+        preview_label.config(image=placeholder_tk)
+        preview_label.image = placeholder_tk
+        process_button.config(state=tk.DISABLED)
+        log_message("✅ All files processed or no files selected.")
+        return
+
+    path = files[index]
+    anchor = app_state["crop_anchor"]
+    mode = app_state["crop_mode"]
+    image = convert_image_only(path, anchor, mode)
+
+    if image:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        app_state["preview_temp_path"] = temp_file.name
+        image.thumbnail((300, 300))
+        image.save(app_state["preview_temp_path"], format="JPEG")
+
+        img = Image.open(app_state["preview_temp_path"])
+        img_tk = ImageTk.PhotoImage(img)
+        preview_label.config(image=img_tk)
+        preview_label.image = img_tk
+
+        process_button.config(state=tk.NORMAL)
+        log_message(f"🔍 Previewing: {os.path.basename(path)} | Anchor: {anchor}, Mode: {mode}")
+
+def begin_process():
+    """Processes the current image and loads the next one."""
+    index = app_state["current_index"]
+    files = app_state["selected_files"]
+    if index >= len(files):
+        return
+
+    path = files[index]
+    anchor = app_state["crop_anchor"]
+    mode = app_state["crop_mode"]
+    process_and_save(path, anchor, mode)
+
+    app_state["current_index"] += 1
+    update_preview()
+
+def update_anchor(val):
+    app_state["crop_anchor"] = val
+    update_preview()
+
+def update_mode(val):
+    app_state["crop_mode"] = val
+    update_preview()
+
+def select_files():
+    """Opens file dialog and starts previewing selected files."""
+    file_paths = filedialog.askopenfilenames(
+        filetypes=[("Image Files", "*.jpg *.jpeg *.png *.heic")]
+    )
+    if not file_paths:
+        return
+    app_state["selected_files"] = list(file_paths)
+    app_state["current_index"] = 0
+
+    output_text.config(state=tk.NORMAL)
+    output_text.delete("1.0", tk.END)
+    output_text.config(state=tk.DISABLED)
+
+    update_preview()
+
+# --- GUI SETUP ---
+
 root = tk.Tk()
-root.title("🖼️ Image Cropper")
+root.title("📷 Photo Cutter")
 root.resizable(False, False)
 
 frame = ttk.Frame(root, padding=10)
 frame.pack(fill=tk.BOTH, expand=False)
 
+# Anchor and Mode selectors
 ttk.Label(frame, text="Crop Anchor:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
-anchor_menu = tk.StringVar(value=CROP_ANCHOR)
-ttk.OptionMenu(frame, anchor_menu, CROP_ANCHOR, *ANCHOR_OPTIONS, command=update_anchor).grid(row=0, column=1, padx=5, pady=5)
+anchor_menu = tk.StringVar(value=app_state["crop_anchor"])
+ttk.OptionMenu(frame, anchor_menu, app_state["crop_anchor"], *ANCHOR_OPTIONS, command=update_anchor)\
+    .grid(row=0, column=1, padx=5, pady=5)
 
 ttk.Label(frame, text="Crop Mode:").grid(row=1, column=0, sticky="e", padx=5, pady=5)
-mode_menu = tk.StringVar(value=CROP_FORCE_MODE)
-ttk.OptionMenu(frame, mode_menu, CROP_FORCE_MODE, *MODE_OPTIONS, command=update_mode).grid(row=1, column=1, padx=5, pady=5)
+mode_menu = tk.StringVar(value=app_state["crop_mode"])
+ttk.OptionMenu(frame, mode_menu, app_state["crop_mode"], *MODE_OPTIONS, command=update_mode)\
+    .grid(row=1, column=1, padx=5, pady=5)
 
-ttk.Button(frame, text="📂 Process File(s)", command=process_files).grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
+# File selection and action buttons
+ttk.Button(frame, text="📂 Process File(s)", command=select_files)\
+    .grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
 
 preview_label = ttk.Label(frame)
-preview_label.grid(row=4, column=0, columnspan=2, pady=10)
+preview_label.grid(row=3, column=0, columnspan=2, pady=10)
 
-begin_button = ttk.Button(frame, text="Begin", state=tk.DISABLED, command=begin_process)
-begin_button.grid(row=5, column=0, columnspan=2, pady=5, sticky="ew")
+process_button = ttk.Button(frame, text="📸 Process Photo", state=tk.DISABLED, command=begin_process)
+process_button.grid(row=4, column=0, columnspan=2, pady=5, sticky="ew")
 
+# Output log
 output_text = tk.Text(frame, height=15, width=80, font=("Consolas", 9), bg="#1e1e1e", fg="#c5c5c5", wrap="word")
-output_text.grid(row=6, column=0, columnspan=2, padx=5, pady=10)
+output_text.grid(row=5, column=0, columnspan=2, padx=5, pady=10)
 output_text.config(state=tk.DISABLED)
+
+# Load placeholder at startup
+placeholder = Image.new("RGB", (300, 300), color="gray")
+placeholder_tk = ImageTk.PhotoImage(placeholder)
+preview_label.config(image=placeholder_tk)
+preview_label.image = placeholder_tk
 
 root.mainloop()
