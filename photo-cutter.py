@@ -1,6 +1,6 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-from PIL import Image, ImageTk
+from tkinter import filedialog, ttk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 import os
 import math
 import tempfile
@@ -116,14 +116,39 @@ def log_message(msg):
     output_text.see(tk.END)
     output_text.config(state=tk.DISABLED)
 
+def create_placeholder(mode="auto"):
+    """Creates a placeholder image with text and correct aspect ratio."""
+    width, height = 450, 300  # Default landscape
+    if mode == "portrait":
+        width, height = 300, 450
+    elif mode == "square":
+        width = height = 400
+
+    image = Image.new("RGB", (width, height), color="gray")
+    draw = ImageDraw.Draw(image)
+    
+    text = "Load an image to begin"
+    font_size = 24
+    try:
+        font = ImageFont.truetype("arial.ttf", font_size)
+    except IOError:
+        font = ImageFont.load_default()
+
+    text_width = draw.textlength(text, font=font)
+    text_position = ((width - text_width) // 2, height // 2 - font_size // 2)
+    draw.text(text_position, text, fill="white", font=font)
+
+    # Resize thumbnail to (300, 300)
+    image.thumbnail((300, 300))
+    return image
+
 def update_preview():
     """Displays preview of the current image."""
     index = app_state["current_index"]
     files = app_state["selected_files"]
 
     if not files or index >= len(files):
-        # Show placeholder
-        placeholder = Image.new("RGB", (300, 300), color="gray")
+        placeholder = create_placeholder(app_state["crop_mode"])
         placeholder_tk = ImageTk.PhotoImage(placeholder)
         preview_label.config(image=placeholder_tk)
         preview_label.image = placeholder_tk
@@ -225,7 +250,7 @@ output_text.grid(row=5, column=0, columnspan=2, padx=5, pady=10)
 output_text.config(state=tk.DISABLED)
 
 # Load placeholder at startup
-placeholder = Image.new("RGB", (300, 300), color="gray")
+placeholder = create_placeholder(app_state["crop_mode"])
 placeholder_tk = ImageTk.PhotoImage(placeholder)
 preview_label.config(image=placeholder_tk)
 preview_label.image = placeholder_tk
