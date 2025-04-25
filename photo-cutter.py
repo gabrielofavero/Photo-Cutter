@@ -118,7 +118,7 @@ def log_message(msg):
 
 def create_placeholder(mode="auto"):
     """Creates a placeholder image with text and correct aspect ratio."""
-    width, height = 450, 300  # Default landscape
+    width, height = 450, 300
     if mode == "portrait":
         width, height = 300, 450
     elif mode == "square":
@@ -126,7 +126,7 @@ def create_placeholder(mode="auto"):
 
     image = Image.new("RGB", (width, height), color="gray")
     draw = ImageDraw.Draw(image)
-    
+
     text = "Load an image to begin"
     font_size = 24
     try:
@@ -138,7 +138,6 @@ def create_placeholder(mode="auto"):
     text_position = ((width - text_width) // 2, height // 2 - font_size // 2)
     draw.text(text_position, text, fill="white", font=font)
 
-    # Resize thumbnail to (300, 300)
     image.thumbnail((300, 300))
     return image
 
@@ -223,30 +222,38 @@ root.resizable(False, False)
 frame = ttk.Frame(root, padding=10)
 frame.pack(fill=tk.BOTH, expand=False)
 
-# Anchor and Mode selectors
-ttk.Label(frame, text="Crop Anchor:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
+# Group crop settings
+settings_frame = ttk.LabelFrame(frame, text="Crop Settings", padding=(10, 5))
+settings_frame.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky="ew")
+
+ttk.Label(settings_frame, text="Anchor:").grid(row=0, column=0, sticky="w", padx=(0, 5), pady=5)
 anchor_menu = tk.StringVar(value=app_state["crop_anchor"])
-ttk.OptionMenu(frame, anchor_menu, app_state["crop_anchor"], *ANCHOR_OPTIONS, command=update_anchor)\
-    .grid(row=0, column=1, padx=5, pady=5)
+ttk.OptionMenu(settings_frame, anchor_menu, app_state["crop_anchor"], *ANCHOR_OPTIONS, command=update_anchor)\
+    .grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=5)
 
-ttk.Label(frame, text="Crop Mode:").grid(row=1, column=0, sticky="e", padx=5, pady=5)
+ttk.Label(settings_frame, text="Mode:").grid(row=0, column=2, sticky="w", padx=(10, 5), pady=5)
 mode_menu = tk.StringVar(value=app_state["crop_mode"])
-ttk.OptionMenu(frame, mode_menu, app_state["crop_mode"], *MODE_OPTIONS, command=update_mode)\
-    .grid(row=1, column=1, padx=5, pady=5)
+ttk.OptionMenu(settings_frame, mode_menu, app_state["crop_mode"], *MODE_OPTIONS, command=update_mode)\
+    .grid(row=0, column=3, sticky="ew", pady=5)
 
-# File selection and action buttons
+settings_frame.columnconfigure(1, weight=1)
+settings_frame.columnconfigure(3, weight=1)
+
+# File selection button
 ttk.Button(frame, text="📂 Process File(s)", command=select_files)\
-    .grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
+    .grid(row=1, column=0, columnspan=2, pady=10, sticky="ew")
 
+# Preview
 preview_label = ttk.Label(frame)
-preview_label.grid(row=3, column=0, columnspan=2, pady=10)
+preview_label.grid(row=2, column=0, columnspan=2, pady=10)
 
+# Process button
 process_button = ttk.Button(frame, text="📸 Process Photo", state=tk.DISABLED, command=begin_process)
-process_button.grid(row=4, column=0, columnspan=2, pady=5, sticky="ew")
+process_button.grid(row=3, column=0, columnspan=2, pady=5, sticky="ew")
 
-# Output log
+# Log output
 output_text = tk.Text(frame, height=15, width=80, font=("Consolas", 9), bg="#1e1e1e", fg="#c5c5c5", wrap="word")
-output_text.grid(row=5, column=0, columnspan=2, padx=5, pady=10)
+output_text.grid(row=4, column=0, columnspan=2, padx=5, pady=10)
 output_text.config(state=tk.DISABLED)
 
 # Load placeholder at startup
