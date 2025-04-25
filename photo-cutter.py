@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, ttk, messagebox
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import os
 import math
@@ -92,8 +92,12 @@ def save_image(image, original_path):
     base_name = os.path.splitext(os.path.basename(original_path))[0]
     output_path = os.path.join(os.path.dirname(original_path), f"{base_name}.jpg")
     image.save(output_path, format="JPEG", quality=95)
-    if not original_path.lower().endswith(".jpg"):
+
+    ext = os.path.splitext(original_path)[1].lower()
+    if ext != ".jpg":
         os.remove(original_path)
+        log_message(f"🗑️ Original '{ext}' file removed after converting to JPEG.")
+
     return output_path
 
 def process_and_save(file_path, anchor, mode):
@@ -105,6 +109,7 @@ def process_and_save(file_path, anchor, mode):
         log_message(f"💾 Saved to: {output_path}")
         return output_path
     log_message(f"❌ Failed to process: {file_path}")
+    messagebox.showinfo("Failed", f"Failed to process: {file_path}")
     return None
 
 # --- GUI FUNCTIONS ---
@@ -152,7 +157,8 @@ def update_preview():
         preview_label.config(image=placeholder_tk)
         preview_label.image = placeholder_tk
         process_button.config(state=tk.DISABLED)
-        log_message("✅ All files processed or no files selected.")
+        log_message("✅ All files processed")
+        messagebox.showinfo("Success", "All files processed")
         return
 
     path = files[index]
@@ -216,7 +222,7 @@ def select_files():
 # --- GUI SETUP ---
 
 root = tk.Tk()
-root.title("📷 Photo Cutter")
+root.title("Photo Cutter")
 root.resizable(False, False)
 
 frame = ttk.Frame(root, padding=10)
