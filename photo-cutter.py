@@ -15,7 +15,7 @@ MODE_OPTIONS = ["auto", "landscape", "portrait"]
 TARGET_RATIOS = {
     "landscape": (15, 10),
     "portrait": (10, 15),
-    "square": (10, 15),
+    "square": (15, 15),
 }
 
 # --- APP STATE ---
@@ -112,6 +112,23 @@ def process_and_save(file_path, anchor, mode):
     messagebox.showinfo("Failed", f"Failed to process: {file_path}")
     return None
 
+def update_target_ratios():
+    try:
+        w = int(width_var.get())
+        h = int(height_var.get())
+        if w <= 0 or h <= 0:
+            raise ValueError("Width and height must be positive integers")
+
+        big, small = max(w, h), min(w, h)
+        TARGET_RATIOS["landscape"] = (big, small)
+        TARGET_RATIOS["portrait"] = (small, big)
+        TARGET_RATIOS["square"] = (small, big)  # Keeping square same as portrait
+
+        log_message(f"🔧 Updated target ratios to: {big}x{small}")
+        update_preview()
+    except ValueError:
+        messagebox.showerror("Invalid Input", "Please enter valid positive integers for width and height.")
+
 # --- GUI FUNCTIONS ---
 
 def log_message(msg):
@@ -178,7 +195,7 @@ def update_preview():
         preview_label.image = img_tk
 
         process_button.config(state=tk.NORMAL)
-        log_message(f"🔍 Previewing: {os.path.basename(path)} | Anchor: {anchor}, Mode: {mode}")
+        log_message(f"🔍 Previewing: {os.path.basename(path)} | Anchor: {anchor}, Orientation: {mode}")
 
 def begin_process():
     """Processes the current image and loads the next one."""
@@ -228,6 +245,20 @@ root.resizable(False, False)
 frame = ttk.Frame(root, padding=10)
 frame.pack(fill=tk.BOTH, expand=False)
 
+# Proportion settings
+proportion_frame = ttk.LabelFrame(frame, text="Image Proportion", padding=(10, 5))
+proportion_frame.grid(row=0, column=2, rowspan=2, padx=(10, 0), sticky="nsew")
+
+ttk.Label(proportion_frame, text="Width:").grid(row=0, column=0, padx=5, pady=5)
+width_var = tk.StringVar(value="15")
+ttk.Entry(proportion_frame, textvariable=width_var, width=5).grid(row=0, column=1, pady=5)
+
+ttk.Label(proportion_frame, text="Height:").grid(row=1, column=0, padx=5, pady=5)
+height_var = tk.StringVar(value="10")
+ttk.Entry(proportion_frame, textvariable=height_var, width=5).grid(row=1, column=1, pady=5)
+
+ttk.Button(proportion_frame, text="Apply", command=update_target_ratios).grid(row=2, column=0, columnspan=2, pady=10)
+
 # Group crop settings
 settings_frame = ttk.LabelFrame(frame, text="Crop Settings", padding=(10, 5))
 settings_frame.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky="ew")
@@ -237,7 +268,7 @@ anchor_menu = tk.StringVar(value=app_state["crop_anchor"])
 ttk.OptionMenu(settings_frame, anchor_menu, app_state["crop_anchor"], *ANCHOR_OPTIONS, command=update_anchor)\
     .grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=5)
 
-ttk.Label(settings_frame, text="Mode:").grid(row=0, column=2, sticky="w", padx=(10, 5), pady=5)
+ttk.Label(settings_frame, text="Orientation:").grid(row=0, column=2, sticky="w", padx=(10, 5), pady=5)
 mode_menu = tk.StringVar(value=app_state["crop_mode"])
 ttk.OptionMenu(settings_frame, mode_menu, app_state["crop_mode"], *MODE_OPTIONS, command=update_mode)\
     .grid(row=0, column=3, sticky="ew", pady=5)
