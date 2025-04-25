@@ -19,7 +19,8 @@ TARGET_RATIOS = {
     "square": (10, 15),
 }
 
-selected_image_path = None
+selected_files = []
+current_index = 0
 preview_temp_path = None
 
 # Helper Functions
@@ -67,10 +68,6 @@ def determine_target_ratio(width, height, mode):
         orientation = get_orientation(width, height)
         return TARGET_RATIOS[orientation], orientation
 
-def get_images_in_dir(directory):
-    image_extensions = ('.jpg', '.jpeg', '.png', '.heic')
-    return [f for f in os.listdir(directory) if f.lower().endswith(image_extensions)]
-
 def convert_image_only(file_path, anchor, mode):
     try:
         with Image.open(file_path) as img:
@@ -103,38 +100,29 @@ def process_and_save(file_path, anchor, mode):
         return None
 
 # GUI Functions
-def process_batch():
-    folder = filedialog.askdirectory(title="Select Folder to Process")
-    if not folder:
-        messagebox.showinfo("No Folder", "No folder selected.")
+def process_files():
+    global selected_files, current_index
+    file_paths = filedialog.askopenfilenames(filetypes=[("Image Files", "*.jpg *.jpeg *.png *.heic")])
+    if not file_paths:
         return
-
-    images = get_images_in_dir(folder)
-    if not images:
-        messagebox.showinfo("No images", "No images found in the selected folder.")
-        return
-
+    selected_files = list(file_paths)
+    current_index = 0
     output_text.config(state=tk.NORMAL)
     output_text.delete("1.0", tk.END)
-    for image in images:
-        process_and_save(os.path.join(folder, image), CROP_ANCHOR, CROP_FORCE_MODE)
-    log_message("✅ Batch processing complete.")
     output_text.config(state=tk.DISABLED)
-
-def process_one():
-    global selected_image_path
-    file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg *.jpeg *.png *.heic")])
-    if not file_path:
-        return
-    selected_image_path = file_path
     update_preview()
 
 def update_preview():
     global preview_temp_path
-    if not selected_image_path:
+    if not selected_files or current_index >= len(selected_files):
+        preview_label.config(image='')
+        preview_label.image = None
+        begin_button.config(state=tk.DISABLED)
+        log_message("✅ All files processed.")
         return
 
-    image = convert_image_only(selected_image_path, CROP_ANCHOR, CROP_FORCE_MODE)
+    current_path = selected_files[current_index]
+    image = convert_image_only(current_path, CROP_ANCHOR, CROP_FORCE_MODE)
     if image:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
         preview_temp_path = temp_file.name
@@ -145,11 +133,15 @@ def update_preview():
         preview_label.config(image=img_tk)
         preview_label.image = img_tk
         begin_button.config(state=tk.NORMAL)
-
+        log_message(f"🔍 Previewing: {os.path.basename(current_path)}")
 
 def begin_process():
-    if selected_image_path:
-        process_and_save(selected_image_path, CROP_ANCHOR, CROP_FORCE_MODE)
+    global current_index
+    if selected_files and current_index < len(selected_files):
+        file_path = selected_files[current_index]
+        process_and_save(file_path, CROP_ANCHOR, CROP_FORCE_MODE)
+        current_index += 1
+        update_preview()
 
 def update_anchor(val):
     global CROP_ANCHOR
@@ -164,6 +156,7 @@ def update_mode(val):
 def log_message(msg):
     output_text.config(state=tk.NORMAL)
     output_text.insert(tk.END, msg + "\n")
+    output_text.see(tk.END)
     output_text.config(state=tk.DISABLED)
 
 # GUI Setup
@@ -182,8 +175,7 @@ ttk.Label(frame, text="Crop Mode:").grid(row=1, column=0, sticky="e", padx=5, pa
 mode_menu = tk.StringVar(value=CROP_FORCE_MODE)
 ttk.OptionMenu(frame, mode_menu, CROP_FORCE_MODE, *MODE_OPTIONS, command=update_mode).grid(row=1, column=1, padx=5, pady=5)
 
-ttk.Button(frame, text="📁 Process All in Folder", command=process_batch).grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
-ttk.Button(frame, text="🖼️ Process One Image", command=process_one).grid(row=3, column=0, columnspan=2, pady=5, sticky="ew")
+ttk.Button(frame, text="📂 Process File(s)", command=process_files).grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
 
 preview_label = ttk.Label(frame)
 preview_label.grid(row=4, column=0, columnspan=2, pady=10)
