@@ -245,23 +245,9 @@ root.resizable(False, False)
 frame = ttk.Frame(root, padding=10)
 frame.pack(fill=tk.BOTH, expand=False)
 
-# Proportion settings
-proportion_frame = ttk.LabelFrame(frame, text="Image Proportion", padding=(10, 5))
-proportion_frame.grid(row=0, column=2, rowspan=2, padx=(10, 0), sticky="nsew")
-
-ttk.Label(proportion_frame, text="Width:").grid(row=0, column=0, padx=5, pady=5)
-width_var = tk.StringVar(value="15")
-ttk.Entry(proportion_frame, textvariable=width_var, width=5).grid(row=0, column=1, pady=5)
-
-ttk.Label(proportion_frame, text="Height:").grid(row=1, column=0, padx=5, pady=5)
-height_var = tk.StringVar(value="10")
-ttk.Entry(proportion_frame, textvariable=height_var, width=5).grid(row=1, column=1, pady=5)
-
-ttk.Button(proportion_frame, text="Apply", command=update_target_ratios).grid(row=2, column=0, columnspan=2, pady=10)
-
 # Group crop settings
 settings_frame = ttk.LabelFrame(frame, text="Crop Settings", padding=(10, 5))
-settings_frame.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky="ew")
+settings_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
 ttk.Label(settings_frame, text="Anchor:").grid(row=0, column=0, sticky="w", padx=(0, 5), pady=5)
 anchor_menu = tk.StringVar(value=app_state["crop_anchor"])
@@ -273,12 +259,26 @@ mode_menu = tk.StringVar(value=app_state["crop_mode"])
 ttk.OptionMenu(settings_frame, mode_menu, app_state["crop_mode"], *MODE_OPTIONS, command=update_mode)\
     .grid(row=0, column=3, sticky="ew", pady=5)
 
-settings_frame.columnconfigure(1, weight=1)
-settings_frame.columnconfigure(3, weight=1)
-
 # File selection button
 ttk.Button(frame, text="📂 Process File(s)", command=select_files)\
-    .grid(row=1, column=0, columnspan=2, pady=10, sticky="ew")
+    .grid(row=1, column=0, sticky="ew", padx=(0, 10), pady=(10, 0))
+
+# Proportion settings
+proportion_frame = ttk.LabelFrame(frame, text="Image Proportion", padding=(10, 5))
+proportion_frame.grid(row=0, column=1, rowspan=2, sticky="nsew")
+
+ttk.Label(proportion_frame, text="Width:").grid(row=0, column=0, padx=5, pady=5)
+width_var = tk.StringVar(value="15")
+ttk.Entry(proportion_frame, textvariable=width_var, width=5).grid(row=0, column=1, pady=5)
+
+ttk.Label(proportion_frame, text="Height:").grid(row=1, column=0, padx=5, pady=5)
+height_var = tk.StringVar(value="10")
+ttk.Entry(proportion_frame, textvariable=height_var, width=5).grid(row=1, column=1, pady=5)
+
+ttk.Button(proportion_frame, text="Apply", command=update_target_ratios).grid(row=2, column=0, columnspan=2, pady=10)
+
+frame.columnconfigure(0, weight=10)
+frame.columnconfigure(1, weight=1) 
 
 # Preview
 preview_label = ttk.Label(frame)
