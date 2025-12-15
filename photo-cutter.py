@@ -1,9 +1,8 @@
-import tkinter as tk
-from tkinter import filedialog, ttk, messagebox
-from PIL import Image, ImageTk, ImageDraw, ImageFont
+import streamlit as st
+from PIL import Image, ImageDraw, ImageFont
 import os
 import math
-import tempfile
+import io
 from pillow_heif import register_heif_opener
 
 # Register HEIF/HEIC image support
@@ -12,22 +11,26 @@ register_heif_opener()
 # --- CONFIGURATION ---
 ANCHOR_OPTIONS = ["center", "start", "end"]
 MODE_OPTIONS = ["auto", "landscape", "portrait"]
-TARGET_RATIOS = {
-    "landscape": (15, 10),
-    "portrait": (10, 15),
-    "square": (15, 15),
-}
 
-# --- APP STATE ---
-app_state = {
-    "selected_files": [],
-    "current_index": 0,
-    "preview_temp_path": None,
-    "crop_anchor": "center",
-    "crop_mode": "auto"
-}
+# Initialize session state
+if "target_ratios" not in st.session_state:
+    st.session_state.target_ratios = {
+        "landscape": (15, 10),
+        "portrait": (10, 15),
+        "square": (15, 15),
+    }
 
-# --- IMAGE UTILS ---
+if "processed_files" not in st.session_state:
+    st.session_state.processed_files = []
+
+if "log_messages" not in st.session_state:
+    st.session_state.log_messages = []
+
+# --- HELPER FUNCTIONS ---
+
+def log_message(msg):
+    """Appends log message to session state."""
+    st.session_state.log_messages.append(msg)
 
 def get_aspect_ratio(width, height):
     """Returns aspect ratio as a simplified string like '3x2'."""
@@ -70,233 +73,157 @@ def get_target_crop_box(width, height, target_ratio, anchor):
 def determine_target_ratio(width, height, mode):
     """Determines target crop ratio based on mode or image orientation."""
     if mode in ["landscape", "portrait"]:
-        return TARGET_RATIOS[mode], mode
+        return st.session_state.target_ratios[mode], mode
     orientation = get_orientation(width, height)
-    return TARGET_RATIOS[orientation], orientation
+    return st.session_state.target_ratios[orientation], orientation
 
-def convert_image_only(file_path, anchor, mode):
+def convert_image_only(image_file, anchor, mode):
     """Opens and crops image to target ratio (used for preview and processing)."""
     try:
-        with Image.open(file_path) as img:
-            img = img.convert("RGB")
-            width, height = img.size
-            target_ratio, _ = determine_target_ratio(width, height, mode)
-            crop_box = get_target_crop_box(width, height, target_ratio, anchor)
-            return img.crop(crop_box)
+        img = Image.open(image_file)
+        img = img.convert("RGB")
+        width, height = img.size
+        target_ratio, _ = determine_target_ratio(width, height, mode)
+        crop_box = get_target_crop_box(width, height, target_ratio, anchor)
+        return img.crop(crop_box)
     except Exception as e:
-        log_message(f"❌ Error processing '{file_path}': {e}")
+        log_message(f"❌ Error processing image: {e}")
         return None
 
-def save_image(image, original_path):
-    """Saves the cropped image as JPEG and deletes original if not JPEG."""
-    base_name = os.path.splitext(os.path.basename(original_path))[0]
-    output_path = os.path.join(os.path.dirname(original_path), f"{base_name}.jpg")
-    image.save(output_path, format="JPEG", quality=95)
+def image_to_bytes(image, format="JPEG"):
+    """Converts PIL Image to bytes."""
+    img_byte_arr = io.BytesIO()
+    image.save(img_byte_arr, format=format, quality=95)
+    img_byte_arr.seek(0)
+    return img_byte_arr
 
-    ext = os.path.splitext(original_path)[1].lower()
-    if ext != ".jpg":
-        os.remove(original_path)
-        log_message(f"🗑️ Original '{ext}' file removed after converting to JPEG.")
+# --- STREAMLIT UI ---
 
-    return output_path
-
-def process_and_save(file_path, anchor, mode):
-    """Processes and saves cropped image."""
-    image = convert_image_only(file_path, anchor, mode)
-    if image:
-        log_message(f"✅ Cropped '{os.path.basename(file_path)}'")
-        output_path = save_image(image, file_path)
-        log_message(f"💾 Saved to: {output_path}")
-        return output_path
-    log_message(f"❌ Failed to process: {file_path}")
-    messagebox.showinfo("Failed", f"Failed to process: {file_path}")
-    return None
-
-def update_target_ratios():
-    try:
-        w = int(width_var.get())
-        h = int(height_var.get())
-        if w <= 0 or h <= 0:
-            raise ValueError("Width and height must be positive integers")
-
-        big, small = max(w, h), min(w, h)
-        TARGET_RATIOS["landscape"] = (big, small)
-        TARGET_RATIOS["portrait"] = (small, big)
-        TARGET_RATIOS["square"] = (small, big)  # Keeping square same as portrait
-
-        log_message(f"🔧 Updated target ratios to: {big}x{small}")
-        update_preview()
-    except ValueError:
-        messagebox.showerror("Invalid Input", "Please enter valid positive integers for width and height.")
-
-# --- GUI FUNCTIONS ---
-
-def log_message(msg):
-    """Appends log message to the output box."""
-    output_text.config(state=tk.NORMAL)
-    output_text.insert(tk.END, msg + "\n")
-    output_text.see(tk.END)
-    output_text.config(state=tk.DISABLED)
-
-def create_placeholder(mode="auto"):
-    """Creates a placeholder image with text and correct aspect ratio."""
-    width, height = 450, 300
-    if mode == "portrait":
-        width, height = 300, 450
-    elif mode == "square":
-        width = height = 400
-
-    image = Image.new("RGB", (width, height), color="gray")
-    draw = ImageDraw.Draw(image)
-
-    text = "Load an image to begin"
-    font_size = 24
-    try:
-        font = ImageFont.truetype("arial.ttf", font_size)
-    except IOError:
-        font = ImageFont.load_default()
-
-    text_width = draw.textlength(text, font=font)
-    text_position = ((width - text_width) // 2, height // 2 - font_size // 2)
-    draw.text(text_position, text, fill="white", font=font)
-
-    image.thumbnail((300, 300))
-    return image
-
-def update_preview():
-    """Displays preview of the current image."""
-    index = app_state["current_index"]
-    files = app_state["selected_files"]
-
-    if not files or index >= len(files):
-        placeholder = create_placeholder(app_state["crop_mode"])
-        placeholder_tk = ImageTk.PhotoImage(placeholder)
-        preview_label.config(image=placeholder_tk)
-        preview_label.image = placeholder_tk
-        process_button.config(state=tk.DISABLED)
-        log_message("✅ All files processed")
-        messagebox.showinfo("Success", "All files processed")
-        return
-
-    path = files[index]
-    anchor = app_state["crop_anchor"]
-    mode = app_state["crop_mode"]
-    image = convert_image_only(path, anchor, mode)
-
-    if image:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        app_state["preview_temp_path"] = temp_file.name
-        image.thumbnail((300, 300))
-        image.save(app_state["preview_temp_path"], format="JPEG")
-
-        img = Image.open(app_state["preview_temp_path"])
-        img_tk = ImageTk.PhotoImage(img)
-        preview_label.config(image=img_tk)
-        preview_label.image = img_tk
-
-        process_button.config(state=tk.NORMAL)
-        log_message(f"🔍 Previewing: {os.path.basename(path)} | Anchor: {anchor}, Orientation: {mode}")
-
-def begin_process():
-    """Processes the current image and loads the next one."""
-    index = app_state["current_index"]
-    files = app_state["selected_files"]
-    if index >= len(files):
-        return
-
-    path = files[index]
-    anchor = app_state["crop_anchor"]
-    mode = app_state["crop_mode"]
-    process_and_save(path, anchor, mode)
-
-    app_state["current_index"] += 1
-    update_preview()
-
-def update_anchor(val):
-    app_state["crop_anchor"] = val
-    update_preview()
-
-def update_mode(val):
-    app_state["crop_mode"] = val
-    update_preview()
-
-def select_files():
-    """Opens file dialog and starts previewing selected files."""
-    file_paths = filedialog.askopenfilenames(
-        filetypes=[("Image Files", "*.jpg *.jpeg *.png *.heic")]
+def main():
+    st.set_page_config(
+        page_title="Photo Cutter",
+        page_icon="📸",
+        layout="wide"
     )
-    if not file_paths:
-        return
-    app_state["selected_files"] = list(file_paths)
-    app_state["current_index"] = 0
+    
+    st.title("📸 Photo Cutter")
+    st.markdown("Upload and crop images to custom aspect ratios")
+    
+    # Sidebar for settings
+    with st.sidebar:
+        st.header("⚙️ Settings")
+        
+        # Image Proportion Settings
+        st.subheader("Image Proportion")
+        col1, col2 = st.columns(2)
+        with col1:
+            width_ratio = st.number_input("Width", min_value=1, max_value=100, value=15, step=1)
+        with col2:
+            height_ratio = st.number_input("Height", min_value=1, max_value=100, value=10, step=1)
+        
+        if st.button("Apply Ratios", type="primary"):
+            big, small = max(width_ratio, height_ratio), min(width_ratio, height_ratio)
+            st.session_state.target_ratios["landscape"] = (big, small)
+            st.session_state.target_ratios["portrait"] = (small, big)
+            st.session_state.target_ratios["square"] = (small, big)
+            log_message(f"🔧 Updated target ratios to: {big}x{small}")
+            st.success(f"Ratios updated to {big}x{small}")
+        
+        st.divider()
+        
+        # Crop Settings
+        st.subheader("Crop Settings")
+        anchor = st.selectbox(
+            "Anchor Position",
+            ANCHOR_OPTIONS,
+            index=ANCHOR_OPTIONS.index("center"),
+            help="Where to anchor the crop"
+        )
+        
+        mode = st.selectbox(
+            "Orientation Mode",
+            MODE_OPTIONS,
+            index=MODE_OPTIONS.index("auto"),
+            help="Auto detects orientation from image"
+        )
+        
+        st.divider()
+        
+        # Display current ratios
+        st.subheader("Current Ratios")
+        st.text(f"Landscape: {st.session_state.target_ratios['landscape'][0]}x{st.session_state.target_ratios['landscape'][1]}")
+        st.text(f"Portrait: {st.session_state.target_ratios['portrait'][0]}x{st.session_state.target_ratios['portrait'][1]}")
+    
+    # Main content area
+    uploaded_files = st.file_uploader(
+        "Upload Image(s)",
+        type=["jpg", "jpeg", "png", "heic"],
+        accept_multiple_files=True,
+        help="Select one or more images to process"
+    )
+    
+    if uploaded_files:
+        # Create tabs for each uploaded image
+        if len(uploaded_files) == 1:
+            # Single image - no tabs needed
+            process_single_image(uploaded_files[0], anchor, mode)
+        else:
+            # Multiple images - use tabs
+            tabs = st.tabs([f"📷 {file.name}" for file in uploaded_files])
+            for tab, uploaded_file in zip(tabs, uploaded_files):
+                with tab:
+                    process_single_image(uploaded_file, anchor, mode)
+    
+    # Log section at the bottom
+    if st.session_state.log_messages:
+        with st.expander("📋 Processing Log", expanded=False):
+            for msg in st.session_state.log_messages:
+                st.text(msg)
 
-    output_text.config(state=tk.NORMAL)
-    output_text.delete("1.0", tk.END)
-    output_text.config(state=tk.DISABLED)
+def process_single_image(uploaded_file, anchor, mode):
+    """Process and display a single image."""
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Original")
+        original_img = Image.open(uploaded_file)
+        st.image(original_img, use_container_width=True)
+        
+        # Display image info
+        width, height = original_img.size
+        orientation = get_orientation(width, height)
+        st.caption(f"Size: {width}x{height} | Ratio: {get_aspect_ratio(width, height)} | {orientation.title()}")
+    
+    with col2:
+        st.subheader("Preview (Cropped)")
+        
+        # Reset file pointer
+        uploaded_file.seek(0)
+        cropped_img = convert_image_only(uploaded_file, anchor, mode)
+        
+        if cropped_img:
+            st.image(cropped_img, use_container_width=True)
+            
+            # Display cropped image info
+            crop_width, crop_height = cropped_img.size
+            st.caption(f"Size: {crop_width}x{crop_height} | Ratio: {get_aspect_ratio(crop_width, crop_height)}")
+            
+            # Download button
+            img_bytes = image_to_bytes(cropped_img)
+            base_name = os.path.splitext(uploaded_file.name)[0]
+            
+            st.download_button(
+                label="💾 Download Cropped Image",
+                data=img_bytes,
+                file_name=f"{base_name}_cropped.jpg",
+                mime="image/jpeg",
+                type="primary"
+            )
+            
+            log_message(f"✅ Processed: {uploaded_file.name} | Anchor: {anchor} | Mode: {mode}")
+        else:
+            st.error("Failed to process image")
+            log_message(f"❌ Failed to process: {uploaded_file.name}")
 
-    update_preview()
-
-# --- GUI SETUP ---
-
-root = tk.Tk()
-root.title("Photo Cutter")
-root.resizable(False, False)
-
-frame = ttk.Frame(root, padding=10)
-frame.pack(fill=tk.BOTH, expand=False)
-
-# Group crop settings
-settings_frame = ttk.LabelFrame(frame, text="Crop Settings", padding=(10, 5))
-settings_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-
-ttk.Label(settings_frame, text="Anchor:").grid(row=0, column=0, sticky="w", padx=(0, 5), pady=5)
-anchor_menu = tk.StringVar(value=app_state["crop_anchor"])
-ttk.OptionMenu(settings_frame, anchor_menu, app_state["crop_anchor"], *ANCHOR_OPTIONS, command=update_anchor)\
-    .grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=5)
-
-ttk.Label(settings_frame, text="Orientation:").grid(row=0, column=2, sticky="w", padx=(10, 5), pady=5)
-mode_menu = tk.StringVar(value=app_state["crop_mode"])
-ttk.OptionMenu(settings_frame, mode_menu, app_state["crop_mode"], *MODE_OPTIONS, command=update_mode)\
-    .grid(row=0, column=3, sticky="ew", pady=5)
-
-# File selection button
-ttk.Button(frame, text="📂 Process File(s)", command=select_files)\
-    .grid(row=1, column=0, sticky="ew", padx=(0, 10), pady=(10, 0))
-
-# Proportion settings
-proportion_frame = ttk.LabelFrame(frame, text="Image Proportion", padding=(10, 5))
-proportion_frame.grid(row=0, column=1, rowspan=2, sticky="nsew")
-
-ttk.Label(proportion_frame, text="Width:").grid(row=0, column=0, padx=5, pady=5)
-width_var = tk.StringVar(value="15")
-ttk.Entry(proportion_frame, textvariable=width_var, width=5).grid(row=0, column=1, pady=5)
-
-ttk.Label(proportion_frame, text="Height:").grid(row=1, column=0, padx=5, pady=5)
-height_var = tk.StringVar(value="10")
-ttk.Entry(proportion_frame, textvariable=height_var, width=5).grid(row=1, column=1, pady=5)
-
-ttk.Button(proportion_frame, text="Apply", command=update_target_ratios).grid(row=2, column=0, columnspan=2, pady=10)
-
-frame.columnconfigure(0, weight=10)
-frame.columnconfigure(1, weight=1) 
-
-# Preview
-preview_label = ttk.Label(frame)
-preview_label.grid(row=2, column=0, columnspan=2, pady=10)
-
-# Process button
-process_button = ttk.Button(frame, text="📸 Process Photo", state=tk.DISABLED, command=begin_process)
-process_button.grid(row=3, column=0, columnspan=2, pady=5, sticky="ew")
-
-# Log output
-output_text = tk.Text(frame, height=15, width=80, font=("Consolas", 9), bg="#1e1e1e", fg="#c5c5c5", wrap="word")
-output_text.grid(row=4, column=0, columnspan=2, padx=5, pady=10)
-output_text.config(state=tk.DISABLED)
-
-# Load placeholder at startup
-placeholder = create_placeholder(app_state["crop_mode"])
-placeholder_tk = ImageTk.PhotoImage(placeholder)
-preview_label.config(image=placeholder_tk)
-preview_label.image = placeholder_tk
-
-root.mainloop()
+if __name__ == "__main__":
+    main()
